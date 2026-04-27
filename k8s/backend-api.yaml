@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-api
+  namespace: avd-monitor-prod
+  labels:
+    component: monitor-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      component: monitor-api
+  template:
+    metadata:
+      labels:
+        component: monitor-api
+    spec:
+      containers:
+      - name: gateway
+        image: acrmonitor.azurecr.io/devopstrio/monitor-api:v1.2.0
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: monitor-secrets
+              key: db-url
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitor-api-svc
+  namespace: avd-monitor-prod
+spec:
+  selector:
+    component: monitor-api
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-engine
+  namespace: avd-monitor-prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: alert-engine
+  template:
+    metadata:
+      labels:
+        component: alert-engine
+    spec:
+      containers:
+      - name: engine
+        image: acrmonitor.azurecr.io/devopstrio/alert-engine:latest
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: monitor-ingress
+  namespace: avd-monitor-prod
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - monitor.devopstrio.co.uk
+    secretName: monitor-tls-cert
+  rules:
+  - host: monitor.devopstrio.co.uk
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: monitor-api-svc
+            port:
+              number: 80
